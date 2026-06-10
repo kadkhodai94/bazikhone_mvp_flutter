@@ -109,13 +109,27 @@ jobs:
                   except FileNotFoundError:
                       pass
 
-          # Launcher icon: use the provided app icon for all launcher densities.
-          icon = Path('assets/images/app_icon.png')
-          if icon.exists():
-              for d in ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']:
-                  target_dir = Path('android/app/src/main/res') / d
-                  target_dir.mkdir(parents=True, exist_ok=True)
-                  shutil.copyfile(icon, target_dir / 'ic_launcher.png')
+          # Launcher icon: only copy real PNG files into Android res.
+          # Some image generators save JPEG data with a .png extension; AAPT fails on those.
+          def is_png(path: Path) -> bool:
+              try:
+                  return path.exists() and path.read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+              except Exception:
+                  return False
+
+          density_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
+          app_icon = Path('assets/images/app_icon.png')
+          for d in density_dirs:
+              target_dir = Path('android/app/src/main/res') / d
+              target_dir.mkdir(parents=True, exist_ok=True)
+              target = target_dir / 'ic_launcher.png'
+              source = Path('assets/images/launcher_icons') / d / 'ic_launcher.png'
+              if is_png(source):
+                  shutil.copyfile(source, target)
+              elif is_png(app_icon):
+                  shutil.copyfile(app_icon, target)
+              else:
+                  print(f'No valid PNG launcher icon found for {d}; keeping Flutter default icon.')
           PYPKG
 
 
