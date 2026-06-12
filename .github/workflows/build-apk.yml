@@ -11,6 +11,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: multi_games_flutter
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -36,4 +40,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: multi-games-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: multi_games_flutter/build/app/outputs/flutter-apk/app-release.apk
