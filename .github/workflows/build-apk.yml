@@ -11,10 +11,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: multi_games_flutter
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -30,14 +26,35 @@ jobs:
         with:
           channel: stable
 
+      - name: Find Flutter project
+        run: |
+          echo "Searching for pubspec.yaml..."
+          PROJECT_DIR=$(dirname "$(find . -name pubspec.yaml -not -path "*/.dart_tool/*" | head -n 1)")
+
+          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
+            if [ -f "pubspec.yaml" ]; then
+              PROJECT_DIR="."
+            else
+              echo "No Flutter project found. pubspec.yaml is missing."
+              exit 1
+            fi
+          fi
+
+          echo "Flutter project found at: $PROJECT_DIR"
+          echo "FLUTTER_PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
       - name: Flutter pub get
-        run: flutter pub get
+        run: |
+          cd "$FLUTTER_PROJECT_DIR"
+          flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: |
+          cd "$FLUTTER_PROJECT_DIR"
+          flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: multi-games-release-apk
-          path: multi_games_flutter/build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ env.FLUTTER_PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
