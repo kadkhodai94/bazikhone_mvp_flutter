@@ -11,6 +11,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8"
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -63,6 +66,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+
+      - name: Install Android SDK 36
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
       - name: Fix Android config
         run: |
@@ -137,13 +144,14 @@ jobs:
           </resources>
           EOF
 
-          if [ -f android/gradle.properties ]; then
-            echo "android.useAndroidX=true" >> android/gradle.properties
-            echo "android.enableJetifier=true" >> android/gradle.properties
-          else
-            echo "android.useAndroidX=true" > android/gradle.properties
-            echo "android.enableJetifier=true" >> android/gradle.properties
-          fi
+          cat > android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.enableJetifier=false
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.configureondemand=false
+          EOF
 
           if [ -f android/app/build.gradle ]; then
             sed -i 's/compileSdk [0-9][0-9]*/compileSdk 36/g' android/app/build.gradle
@@ -154,6 +162,11 @@ jobs:
 
           echo "Android config fixed."
 
+      - name: Clean Flutter project
+        run: |
+          cd "$FLUTTER_PROJECT_DIR"
+          flutter clean
+
       - name: Flutter pub get
         run: |
           cd "$FLUTTER_PROJECT_DIR"
@@ -162,10 +175,10 @@ jobs:
       - name: Build release APK
         run: |
           cd "$FLUTTER_PROJECT_DIR"
-          flutter build apk --release --android-skip-build-dependency-validation
+          flutter build apk --release --target-platform android-arm64 --split-per-abi --android-skip-build-dependency-validation
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: multi-games-release-apk
-          path: ${{ env.FLUTTER_PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ env.FLUTTER_PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
