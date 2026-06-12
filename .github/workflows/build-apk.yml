@@ -1,4 +1,4 @@
-name: Build Flutter APK
+name: Build Installable Flutter APK
 
 on:
   workflow_dispatch:
@@ -18,13 +18,6 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Show repository files
-        run: |
-          echo "Repository root:"
-          ls -la
-          echo "All files:"
-          find . -maxdepth 4 -type f | head -150
-
       - name: Extract project zip if needed
         run: |
           mkdir -p extracted_projects
@@ -42,8 +35,6 @@ jobs:
 
       - name: Find Flutter project
         run: |
-          echo "Searching for pubspec.yaml..."
-
           PUBSPEC=$(find . -name pubspec.yaml -not -path "*/.dart_tool/*" | head -n 1)
 
           if [ -z "$PUBSPEC" ]; then
@@ -52,7 +43,6 @@ jobs:
           fi
 
           PROJECT_DIR=$(dirname "$PUBSPEC")
-
           echo "Flutter project found at: $PROJECT_DIR"
           echo "FLUTTER_PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
@@ -74,8 +64,6 @@ jobs:
       - name: Fix Android config
         run: |
           cd "$FLUTTER_PROJECT_DIR"
-
-          echo "Fixing Android config..."
 
           mkdir -p android/app/src/main/kotlin/com/lalenawid/multigames
           mkdir -p android/app/src/main/res/values
@@ -145,40 +133,30 @@ jobs:
           EOF
 
           cat > android/gradle.properties <<'EOF'
-          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -Dfile.encoding=UTF-8
           android.useAndroidX=true
           android.enableJetifier=false
           org.gradle.daemon=false
           org.gradle.parallel=false
-          org.gradle.configureondemand=false
           EOF
 
-          if [ -f android/app/build.gradle ]; then
-            sed -i 's/compileSdk [0-9][0-9]*/compileSdk 36/g' android/app/build.gradle
-            sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle
-            sed -i 's/targetSdk [0-9][0-9]*/targetSdk 36/g' android/app/build.gradle
-            sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 36/g' android/app/build.gradle
-          fi
-
-          echo "Android config fixed."
-
-      - name: Clean Flutter project
-        run: |
-          cd "$FLUTTER_PROJECT_DIR"
-          flutter clean
+          sed -i 's/compileSdk [0-9][0-9]*/compileSdk 36/g' android/app/build.gradle || true
+          sed -i 's/compileSdk = [0-9][0-9]*/compileSdk = 36/g' android/app/build.gradle || true
+          sed -i 's/targetSdk [0-9][0-9]*/targetSdk 36/g' android/app/build.gradle || true
+          sed -i 's/targetSdk = [0-9][0-9]*/targetSdk = 36/g' android/app/build.gradle || true
 
       - name: Flutter pub get
         run: |
           cd "$FLUTTER_PROJECT_DIR"
           flutter pub get
 
-      - name: Build release APK
+      - name: Build installable debug APK
         run: |
           cd "$FLUTTER_PROJECT_DIR"
-          flutter build apk --release --target-platform android-arm64 --split-per-abi --android-skip-build-dependency-validation
+          flutter build apk --debug --android-skip-build-dependency-validation
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: multi-games-release-apk
-          path: ${{ env.FLUTTER_PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          name: multi-games-installable-apk
+          path: ${{ env.FLUTTER_PROJECT_DIR }}/build/app/outputs/flutter-apk/app-debug.apk
