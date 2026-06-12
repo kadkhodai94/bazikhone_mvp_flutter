@@ -15,6 +15,45 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Show repository files
+        run: |
+          echo "Repository root:"
+          ls -la
+          echo "All files:"
+          find . -maxdepth 3 -type f | head -100
+
+      - name: Extract project zip if needed
+        run: |
+          mkdir -p extracted_projects
+
+          ZIP_COUNT=$(find . -maxdepth 3 -type f -name "*.zip" | wc -l)
+          echo "ZIP files found: $ZIP_COUNT"
+
+          if [ "$ZIP_COUNT" -gt 0 ]; then
+            find . -maxdepth 3 -type f -name "*.zip" | while read ZIPFILE; do
+              BASENAME=$(basename "$ZIPFILE" .zip)
+              echo "Extracting: $ZIPFILE"
+              unzip -o "$ZIPFILE" -d "extracted_projects/$BASENAME"
+            done
+          fi
+
+      - name: Find Flutter project
+        run: |
+          echo "Searching for pubspec.yaml..."
+
+          PUBSPEC=$(find . -name pubspec.yaml -not -path "*/.dart_tool/*" | head -n 1)
+
+          if [ -z "$PUBSPEC" ]; then
+            echo "No Flutter project found. pubspec.yaml is missing."
+            echo "Make sure you uploaded the extracted Flutter project or the project ZIP."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PUBSPEC")
+
+          echo "Flutter project found at: $PROJECT_DIR"
+          echo "FLUTTER_PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -25,23 +64,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-
-      - name: Find Flutter project
-        run: |
-          echo "Searching for pubspec.yaml..."
-          PROJECT_DIR=$(dirname "$(find . -name pubspec.yaml -not -path "*/.dart_tool/*" | head -n 1)")
-
-          if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "." ]; then
-            if [ -f "pubspec.yaml" ]; then
-              PROJECT_DIR="."
-            else
-              echo "No Flutter project found. pubspec.yaml is missing."
-              exit 1
-            fi
-          fi
-
-          echo "Flutter project found at: $PROJECT_DIR"
-          echo "FLUTTER_PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
       - name: Flutter pub get
         run: |
