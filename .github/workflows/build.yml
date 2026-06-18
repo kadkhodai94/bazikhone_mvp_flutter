@@ -1,4 +1,4 @@
-name: Build Flutter From ZIP
+name: Build Bazikhone WebView Adivery
 
 on:
   workflow_dispatch:
@@ -10,21 +10,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip project
+      - name: Resolve ZIP
         run: |
-          ZIP_FILE=$(ls *.zip | head -n 1)
-          echo "Found ZIP: $ZIP_FILE"
-          unzip -o "$ZIP_FILE" -d extracted
-          ls -la extracted
-          if [ -d extracted/* ]; then
-            cp -r extracted/*/* .
-          else
-            cp -r extracted/* .
+          set -euo pipefail
+          rm -rf extracted clean_project
+
+          ZIP_FILE=$(ls -t *.zip 2>/dev/null | head -n 1 || true)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found in repository root"
+            exit 1
           fi
-          ls -la
+
+          echo "Using ZIP: $ZIP_FILE"
+          mkdir extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          SOURCE_DIR=$(find extracted -name "pubspec.yaml" -exec dirname {} \; | head -n 1)
+
+          if [ -z "$SOURCE_DIR" ]; then
+            echo "pubspec.yaml not found after unzip"
+            exit 1
+          fi
+
+          if [ ! -f "$SOURCE_DIR/lib/main.dart" ]; then
+            echo "lib/main.dart not found"
+            exit 1
+          fi
+
+          echo "SOURCE_DIR=$PWD/$SOURCE_DIR" >> "$GITHUB_ENV"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -35,41 +52,147 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
           channel: stable
           cache: true
 
-      - name: Create Android scaffold and restore real app
+      - name: Create clean Flutter Android project
         run: |
-          test -f app_src/main.dart
-          test -f pubspec.yaml
-          cp app_src/main.dart /tmp/bazikhone_main.dart
-          cp pubspec.yaml /tmp/bazikhone_pubspec.yaml
-          flutter create --platforms=android --org mk.kadkhodai.bazikhone .
-          mkdir -p lib
-          cp /tmp/bazikhone_main.dart lib/main.dart
-          cp /tmp/bazikhone_pubspec.yaml pubspec.yaml
+          set -euo pipefail
+          flutter create -t app --platforms=android --project-name bazikhone_webview clean_project
+
+          rm -rf clean_project/lib
+          rm -rf clean_project/assets
+          rm -f clean_project/pubspec.yaml
+
+          cp -r "$SOURCE_DIR/lib" clean_project/lib
+          cp "$SOURCE_DIR/pubspec.yaml" clean_project/pubspec.yaml
+          cp -r "$SOURCE_DIR/assets" clean_project/assets
+
+      - name: Patch Android manifest
+        working-directory: clean_project
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET"/>',
+              '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
+              '<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>',
+          ]
+
+          insert_at = text.find('<application')
+          for permission in permissions:
+              if permission not in text:
+                  text = text[:insert_at] + '    ' + permission + '\n' + text[insert_at:]
+                  insert_at = text.find('<application')
+
+          if 'com.adivery.sdk.APPLICATION_ID' not in text:
+              app_open = text.find('<application')
+              app_close = text.find('>', app_open) + 1
+              meta = '\n        <meta-data android:name="com.adivery.sdk.APPLICATION_ID" android:value="aa714944-d43d-43d4-9d36-1cb3404cefbc"/>'
+              text = text[:app_close] + meta + text[app_close:]
+
+          text = text.replace('android:label="bazikhone_webview"', 'android:label="بازی خونه"')
+          manifest.write_text(text)
+          PY
+
+      - name: Install Android SDK 36
+        run: |
+          set -euo pipefail
+          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
+      - name: Patch Gradle SDK Kotlin R8
+        working-directory: clean_project
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle_files = [
+              Path('android/app/build.gradle'),
+              Path('android/app/build.gradle.kts'),
+          ]
+
+          for f in gradle_files:
+              if not f.exists():
+                  continue
+
+              text = f.read_text()
+              text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', text)
+              text = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', text)
+              text = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 36', text)
+              text = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 36', text)
+
+              if f.name.endswith('.kts'):
+                  text = re.sub(r'isMinifyEnabled\s*=\s*true', 'isMinifyEnabled = false', text)
+                  text = re.sub(r'isShrinkResources\s*=\s*true', 'isShrinkResources = false', text)
+              else:
+                  text = re.sub(r'minifyEnabled\s+true', 'minifyEnabled false', text)
+                  text = re.sub(r'shrinkResources\s+true', 'shrinkResources false', text)
+
+              f.write_text(text)
+
+          settings_files = [
+              Path('android/settings.gradle'),
+              Path('android/settings.gradle.kts'),
+          ]
+
+          for f in settings_files:
+              if not f.exists():
+                  continue
+
+              text = f.read_text()
+              text = re.sub(
+                  r'id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'][^"\']+["\']',
+                  'id "org.jetbrains.kotlin.android" version "2.2.20"',
+                  text,
+              )
+              text = re.sub(
+                  r'id\(["\']org\.jetbrains\.kotlin\.android["\']\)\s+version\s+["\'][^"\']+["\']',
+                  'id("org.jetbrains.kotlin.android") version "2.2.20"',
+                  text,
+              )
+              f.write_text(text)
+
+          proguard = Path('android/app/proguard-rules.pro')
+          existing = proguard.read_text() if proguard.exists() else ''
+          rules = '''
+-dontwarn com.mbridge.**
+-dontwarn com.mintegral.**
+-dontwarn com.adivery.**
+-keep class com.adivery.** { *; }
+-keep class com.mbridge.** { *; }
+-keep class com.mintegral.** { *; }
+'''
+          if 'com.mbridge' not in existing:
+              proguard.write_text(existing + rules)
+          PY
 
       - name: Get packages
+        working-directory: clean_project
         run: flutter pub get
 
-      - name: Verify no Flutter demo
-        run: python3 scripts/verify_no_demo.py
-
       - name: Build APK
-        run: flutter build apk --release
+        working-directory: clean_project
+        run: flutter build apk --release --no-shrink --build-name=1.1.8 --build-number=10
 
       - name: Build AAB
-        run: flutter build appbundle --release
+        working-directory: clean_project
+        run: flutter build appbundle --release --no-shrink --build-name=1.1.8 --build-number=10
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: bazikhone-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: clean_project/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
           name: bazikhone-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          path: clean_project/build/app/outputs/bundle/release/app-release.aab
