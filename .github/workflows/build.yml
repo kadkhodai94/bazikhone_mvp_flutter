@@ -58,6 +58,7 @@ jobs:
       - name: Create clean Flutter Android project
         run: |
           set -euo pipefail
+
           flutter create -t app --platforms=android --project-name bazikhone_webview clean_project
 
           rm -rf clean_project/lib
@@ -72,6 +73,7 @@ jobs:
         working-directory: clean_project
         run: |
           set -euo pipefail
+
           python3 - <<'PY'
           from pathlib import Path
 
@@ -109,6 +111,7 @@ jobs:
         working-directory: clean_project
         run: |
           set -euo pipefail
+
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -123,6 +126,7 @@ jobs:
                   continue
 
               text = f.read_text()
+
               text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', text)
               text = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', text)
               text = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 36', text)
@@ -147,28 +151,33 @@ jobs:
                   continue
 
               text = f.read_text()
+
               text = re.sub(
                   r'id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'][^"\']+["\']',
                   'id "org.jetbrains.kotlin.android" version "2.2.20"',
                   text,
               )
+
               text = re.sub(
                   r'id\(["\']org\.jetbrains\.kotlin\.android["\']\)\s+version\s+["\'][^"\']+["\']',
                   'id("org.jetbrains.kotlin.android") version "2.2.20"',
                   text,
               )
+
               f.write_text(text)
 
           proguard = Path('android/app/proguard-rules.pro')
           existing = proguard.read_text() if proguard.exists() else ''
-          rules = '''
--dontwarn com.mbridge.**
--dontwarn com.mintegral.**
--dontwarn com.adivery.**
--keep class com.adivery.** { *; }
--keep class com.mbridge.** { *; }
--keep class com.mintegral.** { *; }
-'''
+
+          rules = (
+              "\n-dontwarn com.mbridge.**\n"
+              "-dontwarn com.mintegral.**\n"
+              "-dontwarn com.adivery.**\n"
+              "-keep class com.adivery.** { *; }\n"
+              "-keep class com.mbridge.** { *; }\n"
+              "-keep class com.mintegral.** { *; }\n"
+          )
+
           if 'com.mbridge' not in existing:
               proguard.write_text(existing + rules)
           PY
