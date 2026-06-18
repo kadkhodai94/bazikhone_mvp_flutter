@@ -1,4 +1,4 @@
-name: Build Flutter APK/AAB
+name: Build Flutter From ZIP
 
 on:
   push:
@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -26,26 +26,79 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Find and unzip project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Files in repository:"
+          ls -la
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1 || true)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found in repository."
+            exit 1
+          fi
+
+          echo "ZIP found: $ZIP_FILE"
+
+          rm -rf extracted_project
+          mkdir -p extracted_project
+
+          unzip -o "$ZIP_FILE" -d extracted_project
+
+          echo "Files after unzip:"
+          find extracted_project -maxdepth 3 -type f | head -n 50
+
+          PUBSPEC_PATH=$(find extracted_project -type f -name "pubspec.yaml" | head -n 1 || true)
+
+          if [ -z "$PUBSPEC_PATH" ]; then
+            echo "ERROR: pubspec.yaml not found inside ZIP."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PUBSPEC_PATH")
+
+          echo "Flutter project found at: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
+      - name: Disable Flutter analytics
+        run: flutter config --no-analytics
+
+      - name: Create Android folder if missing
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if [ ! -d "android" ]; then
+            flutter create . \
+              --platforms=android \
+              --project-name=bazikhone_native \
+              --org=com.lalenawid \
+              --no-overwrite
+          else
+            echo "Android folder already exists."
+          fi
+
       - name: Flutter pub get
+        working-directory: ${{ env.PROJECT_DIR }}
         run: flutter pub get
 
-      - name: Analyze project
-        run: flutter analyze
-
-      - name: Build APK release
+      - name: Build release APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: flutter build apk --release --build-name=1.0.0 --build-number=1
 
-      - name: Build AAB release
+      - name: Build release AAB
+        working-directory: ${{ env.PROJECT_DIR }}
         run: flutter build appbundle --release --build-name=1.0.0 --build-number=1
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: bazikhone-native-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Upload AAB
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: bazikhone-native-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          path: ${{ env.PROJECT_DIR }}/build/app/outputs/bundle/release/app-release.aab
